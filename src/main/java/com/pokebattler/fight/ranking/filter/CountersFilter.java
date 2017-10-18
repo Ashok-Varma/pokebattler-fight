@@ -1,10 +1,15 @@
 package com.pokebattler.fight.ranking.filter;
 
+import java.util.Collection;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import com.pokebattler.fight.data.PokemonRepository;
+import com.pokebattler.fight.data.proto.PokemonOuterClass.Pokemon;
 import com.pokebattler.fight.data.proto.Ranking.FilterType;
+import com.pokebattler.fight.ranking.RankingParams;
 
 @Component
 public class CountersFilter implements RankingsFilter {
@@ -39,8 +44,9 @@ public class CountersFilter implements RankingsFilter {
     }
     @Override
     public int getNumWorstSubDefenderToKeep() {
-        return numForTotal;
+        return 1;
     }
+    
     
 	@Override
 	public int hashCode() {
@@ -66,5 +72,46 @@ public class CountersFilter implements RankingsFilter {
 		return true;
 	}
 
-    
+	@Override
+    public Collection<Pokemon> getAttackers(PokemonRepository repository) {
+    	return repository.getAllEndGameGoodDefender().getPokemonList();
+    }
+
+	@Override
+    public Collection<Pokemon> getDefenders(PokemonRepository repository) {
+    	return repository.getAllEndGameAttacker().getPokemonList();
+    }
+	@Override
+	public boolean compressResults() {
+		return true;
+	}
+	@Override
+	public String getValue() {
+		return Integer.toString(numForTotal);
+	}
+	@Override
+	public RankingsFilter getOptimizer(RankingParams params) {
+		// TODO Auto-generated method stub
+		return new CountersFilter(numForTotal) {
+			@Override
+		    public int getNumWorstDefenderToKeep() {
+		        return (int)(numForTotal * 3);
+		    }
+		    @Override
+		    public int getNumWorstSubDefenderToKeep() {
+		        return 5;
+		    }
+			@Override
+			public int getNumBestAttackerToKeep() {
+				return (int) (RankingsFilter.TRIM_TO * 1.5);
+			}
+
+			@Override
+			public boolean compressResults() {
+				return false;
+			}
+		
+		};
+	}
+
 }

@@ -23,6 +23,11 @@ runtime_config:  # Optional
 
 env_variables:
  'DBG_ENABLE': 'true'
+ 'FORK_JOIN_POOL_SIZE': 1
+ 'RANKING_SIMULATOR': CloudStorageRankingSimulator
+ 'RANKING_ATTACK_SIMULATOR': IndividualSimulator
+ 'RANKING_TIMEOUT': 30
+ 
 
 network:
   instance_tag: fight
@@ -34,13 +39,13 @@ handlers:
   secure: optional  # Do whatever...
 
 resources:
-  cpu: 2
-  memory_gb: 1
+  cpu: 1
+  memory_gb: 3.0
   
 automatic_scaling:
   min_num_instances: 1
-  max_num_instances: 20
+  max_num_instances: 3
   cool_down_period_sec: 120 # default value
   cpu_utilization:
-    target_utilization: 0.5
+    target_utilization: 0.95
       

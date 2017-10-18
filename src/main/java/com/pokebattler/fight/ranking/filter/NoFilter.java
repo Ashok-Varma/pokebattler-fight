@@ -3,6 +3,7 @@ package com.pokebattler.fight.ranking.filter;
 import org.springframework.stereotype.Component;
 
 import com.pokebattler.fight.data.proto.Ranking.FilterType;
+import com.pokebattler.fight.ranking.RankingParams;
 
 @Component
 public class NoFilter implements RankingsFilter {
@@ -38,6 +39,27 @@ public class NoFilter implements RankingsFilter {
 		if (filterType != other.filterType)
 			return false;
 		return true;
+	}
+
+	@Override
+	public String getValue() {
+		return "NONE";
+	}
+
+	@Override
+	public RankingsFilter getOptimizer(RankingParams params) {
+		// TODO Auto-generated method stub
+		return new NoFilter() {
+			@Override
+		    public int getNumBestAttackerToKeep() {
+		        return (int)(super.getNumBestAttackerToKeep() * 1.25);
+		    }		
+			@Override
+			public boolean compressResults() {
+				return false;
+			}
+
+		};
 	}
 
 

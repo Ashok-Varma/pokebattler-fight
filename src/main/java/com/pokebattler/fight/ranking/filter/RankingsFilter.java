@@ -5,6 +5,7 @@ import java.util.Collection;
 import com.pokebattler.fight.data.PokemonRepository;
 import com.pokebattler.fight.data.proto.PokemonOuterClass.Pokemon;
 import com.pokebattler.fight.data.proto.Ranking.FilterType;
+import com.pokebattler.fight.ranking.RankingParams;
 
 public interface RankingsFilter {
 
@@ -18,6 +19,9 @@ public interface RankingsFilter {
     default int getNumWorstDefenderToKeep() {
         return Integer.MAX_VALUE;
     }
+    default int getNumBestAttackerToKeep() {
+        return RankingsFilter.TRIM_TO;
+    }
     
     default Collection<Pokemon> getAttackers(PokemonRepository repository) {
     	return repository.getAllEndGame().getPokemonList();
@@ -28,5 +32,11 @@ public interface RankingsFilter {
     default boolean compressResults() {
     	return true;
     }
+    public static final int TRIM_TO = 24;
+	String getValue();
+
+	RankingsFilter getOptimizer(RankingParams params);
+
+	
 
 }

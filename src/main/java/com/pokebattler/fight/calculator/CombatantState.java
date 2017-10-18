@@ -21,7 +21,8 @@ public class CombatantState {
     private final long id;
     private final Formulas f;
     private final int cp;
-    private PokemonId pokemon;
+    private PokemonId pokemonId;
+    private Pokemon pokemon;
     private final boolean defender;
     private int timeSinceLastMove;
     private int currentHp;
@@ -31,21 +32,31 @@ public class CombatantState {
     private int numAttacks;
     private PokemonAttack nextAttack;
     private Move nextMove;
+    private Move previousMove;
     private boolean dodged = false;
+    private double dodgePercent = 1.0;
     private boolean damageAlreadyOccurred = false;
-
+    public static final int MIN_FAST_MOVE = PokemonMove.FURY_CUTTER_FAST.getNumber();
+    private final MoveRepository moveRepository;
+    private boolean randomStrat;
     public boolean isNextMoveSpecial() {
-        return !getNextMove().getMoveId().name().endsWith("FAST");
+    	if (getNextMove() == null) return false;
+        return moveRepository.getCinematicMoves().contains(getNextMove().getMoveId());
     }
 
     public boolean isDodged() {
         return dodged;
     }
-
-    public PokemonId getPokemon() {
-        return pokemon;
+    public double getDodgePercent() {
+    	return dodgePercent;
     }
 
+    public PokemonId getPokemonId() {
+        return pokemonId;
+    }
+    public Pokemon getPokemon() {
+    	return pokemon;
+    }
     public int getDamageDealt() {
         return damageDealt;
     }
@@ -97,10 +108,13 @@ public class CombatantState {
     public Move getNextMove() {
         return nextMove;
     }
+    public Move getPreviousMove() {
+        return previousMove;
+    }
 
-    public CombatantState(Pokemon p, PokemonData ind, Formulas f, boolean defender) {
+    public CombatantState(Pokemon p, PokemonData ind, Formulas f, boolean defender, MoveRepository moveRepository, boolean randomStrat) {
         this.id = ind.getId();
-        this.pokemon = p.getPokemonId();
+        this.pokemonId = p.getPokemonId();
         this.f = f;
         this.cp = ind.getCp();
         this.attack = f.getCurrentAttack(p.getStats().getBaseAttack(), ind.getIndividualAttack(),
@@ -116,6 +130,10 @@ public class CombatantState {
         this.timeSinceLastMove = 0;
         this.nextAttack = null;
         this.nextMove = null;
+        this.previousMove = null;
+        this.pokemon = p;
+        this.moveRepository = moveRepository;
+        this.randomStrat = randomStrat;
     }
 
     boolean isAlive() {
@@ -137,30 +155,44 @@ public class CombatantState {
 
     int applyDefense(CombatResult r, int time) {
         int energyGain = f.energyGain(r.getDamage());
-        currentEnergy = Math.max(0, Math.min(defender ? 200 : 100, currentEnergy + energyGain));
+        currentEnergy = Math.max(0, Math.min(defender ? Formulas.MAX_DEFENDER_ENERGY : Formulas.MAX_ENERGY, currentEnergy + energyGain));
         currentHp -= r.getDamage();
         timeSinceLastMove += time;
         combatTime += r.getCombatTime();
-        if (r.getAttackMove() == PokemonMove.DODGE
-                && getTimeToNextDamage() <= Formulas.DODGE_WINDOW && getTimeToNextDamage() >= 0 ) {
-            dodged = true;
+    	if (randomStrat) {
+	        if (r.getAttackMove() == PokemonMove.DODGE
+	                && getTimeToNextDamage() <= Formulas.DODGE_WINDOW && getTimeToNextDamage() >= 0 ) {
+	    		dodged = true;
+        		dodgePercent = 1.0;
+	        }
+    	} else {
+    		// dont double dodge
+	        if (r.getAttackMove() == PokemonMove.DODGE) {
+	    		dodged = true;
+        		dodgePercent = r.getDodgePercent();
+        	}
+            
         }
         return energyGain;
     }
 
-    void applyAttack(CombatResult r, int time) {
+    int applyAttack(CombatResult r, int time) {
         numAttacks++;
 
         timeSinceLastMove += time;
         damageAlreadyOccurred = true;
         combatTime += time;
         damageDealt += r.getDamage();
+        // apply previous move here as the super effective text shows up
+        previousMove = nextMove;
+        
+        // apply energy gain here due to server side bug. When this is fixed 
+        int energyGain = nextMove.getEnergyDelta();
+        currentEnergy = Math.max(0, Math.min(defender ? Formulas.MAX_DEFENDER_ENERGY : Formulas.MAX_ENERGY, currentEnergy + energyGain));
+        return energyGain;
 
     }
-    int resetAttack(int time) {
-        // energy gets subtracted at the very end, no energy gain
-        int energyGain = nextMove.getEnergyDelta();
-        currentEnergy = Math.max(0, Math.min(defender ? 200 : 100, currentEnergy + energyGain));
+    void resetAttack(int time) {
         // reset things that happen inbetween attacks
         combatTime += time;
         timeSinceLastMove = 0; // -1 * delay;
@@ -168,7 +200,6 @@ public class CombatantState {
         nextMove = null;
         dodged = false;
         damageAlreadyOccurred = false;
-        return energyGain;
     }
     void moveTime(int time) {
         combatTime += time;
@@ -178,13 +209,19 @@ public class CombatantState {
     public CombatantResult toResult(Combatant combatant, AttackStrategyType strategy, int actualCombatTime) {
         return CombatantResult.newBuilder().setStrategy(strategy).setDamageDealt(getDamageDealt()).setCp(cp)
                 .setCombatTime(actualCombatTime).setDps(1000.0f * (getDamageDealt()) / actualCombatTime)
-                .setEnergy(getCurrentEnergy()).setStartHp(getStartHp()).setEndHp(getCurrentHp()).setPokemon(pokemon)
+                .setEnergy(getCurrentEnergy()).setStartHp(getStartHp()).setEndHp(getCurrentHp()).setPokemon(pokemonId)
                 .setCombatant(combatant).setId(getId()).build();
     }
 
-    public void setNextAttack(PokemonAttack nextAttack, Move nextMove) {
+    public int setNextAttack(PokemonAttack nextAttack, Move nextMove) {
         this.nextAttack = nextAttack;
         this.nextMove = nextMove;
+        // do not return back the energy now because there is a bug where energy gained is taken away at damage dealt
+        return 0;
+
+//        int energyGain = nextMove.getEnergyDelta();
+//        currentEnergy = Math.max(0, Math.min(defender ? Formulas.MAX_DEFENDER_ENERGY : Formulas.MAX_ENERGY, currentEnergy + energyGain));
+//        return energyGain;
     }
 
     @Override

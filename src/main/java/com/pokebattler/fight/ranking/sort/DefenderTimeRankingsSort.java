@@ -4,10 +4,12 @@ import java.util.Comparator;
 
 import org.springframework.stereotype.Component;
 
+import com.pokebattler.fight.data.proto.FightOuterClass.FightResultOrBuilder;
 import com.pokebattler.fight.data.proto.Ranking.DefenderResultOrBuilder;
 import com.pokebattler.fight.data.proto.Ranking.DefenderSubResultOrBuilder;
 import com.pokebattler.fight.data.proto.Ranking.SortType;
 import com.pokebattler.fight.data.proto.Ranking.SubResultTotalOrBuilder;
+import com.pokebattler.fight.ranking.RankingParams;
 
 @Component
 public class DefenderTimeRankingsSort implements RankingsSort{
@@ -19,11 +21,9 @@ public class DefenderTimeRankingsSort implements RankingsSort{
     }
     
     @Override
-    public Comparator<DefenderSubResultOrBuilder> getDefenderSubResultComparator() {
-        // a win counts as a big delay
-    	// wins first
-    	return Comparator.<DefenderSubResultOrBuilder>comparingInt(result -> result.getResultOrBuilder().getEffectiveCombatTime())
-                .thenComparing(Comparator.comparingDouble(result -> -result.getResultOrBuilder().getPower()));
+	public Comparator<FightResultOrBuilder> getFightResultComparator() {
+    	return Comparator.<FightResultOrBuilder>comparingInt(result -> -result.getEffectiveCombatTime())
+                .thenComparing(Comparator.comparingDouble(result -> -result.getPower()));
     }
     
     @Override
@@ -41,6 +41,10 @@ public class DefenderTimeRankingsSort implements RankingsSort{
     public boolean equals(Object obj) {
         return getClass().equals(obj.getClass());
     }
+	@Override
+    public RankingsSort getRelativeSort(RankingParams params) {
+		return new DefenderTimeRankingsSort();
+	}
 
     
 }

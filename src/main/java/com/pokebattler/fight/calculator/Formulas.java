@@ -16,6 +16,7 @@ import com.pokebattler.fight.data.proto.FightOuterClass.CombatResult;
 import com.pokebattler.fight.data.proto.MoveOuterClass.Move;
 import com.pokebattler.fight.data.proto.PokemonDataOuterClass.PokemonData.Builder;
 import com.pokebattler.fight.data.proto.PokemonDataOuterClass.PokemonDataOrBuilder;
+import com.pokebattler.fight.data.proto.PokemonMoveOuterClass.PokemonMove;
 import com.pokebattler.fight.data.proto.PokemonOuterClass.Pokemon;
 import com.pokebattler.fight.data.proto.PokemonTypeOuterClass.PokemonType;
 
@@ -36,7 +37,9 @@ public class Formulas {
     public static final int MAX_COMBAT_TIME_MS = 100000;
     public static final int START_COMBAT_TIME = 700;
     public static final int DODGE_WINDOW = 700;
-    Random r = new Random();
+    public static final int LOSS_TIME_MS = 2000;
+    public static final int MAX_ENERGY = 100;
+    public static final int MAX_DEFENDER_ENERGY = MAX_ENERGY;
     Logger log = LoggerFactory.getLogger(getClass());
 
     public Formulas() {
@@ -86,8 +89,8 @@ public class Formulas {
     public double calculateModifier(Move move, Pokemon attacker, Pokemon defender) {
         double modifier = 1.0;
         PokemonType type = move.getType();
-		if (type == attacker.getType() || type == attacker.getType2()) {
-            modifier *= 1.25; // stab
+		if (attacker != null && (type == attacker.getType() || type == attacker.getType2())) {
+            modifier *= 1.2; // stab
         }
 
         modifier *= resistRepository.getResist(type, defender.getType())
@@ -99,31 +102,47 @@ public class Formulas {
 
 
     public CombatResult.Builder getCombatResult(double attack, double defense, Move move, Pokemon attacker,
-            Pokemon defender, boolean isDodge) {
-        final int damage = damageOfMove(attack, defense, move, attacker, defender);
-        return getCombatResult(damage, move, isDodge);
+            Pokemon defender, boolean isDodge, double dodgeChance, int currentTime) {
+        final int damage = damageOfMove(attack, defense, move, attacker, defender).getDamage();
+        return getCombatResult(damage, move, isDodge, dodgeChance, currentTime);
     }
-    public int getDamageOfMove(double attack, double defense, Move move, Pokemon attacker,
+    public AttackDamage getDamageOfMove(double attack, double defense, Move move, Pokemon attacker,
             Pokemon defender) {
         return damageOfMove(attack, defense, move, attacker, defender);
     }
-	public CombatResult.Builder getCombatResult(final int damage, Move move, boolean isDodge) {
-		final int dodgeDamage;
+	public CombatResult.Builder getCombatResult(final int damage, Move move, boolean isDodge, double dodgeChance, int currentTime) {
+		int dodgeDamage;
+		final float dodgePercent;
+		int combatTime = move.getDurationMs();
         if (isDodge) {
             // divide by 4 round down but with min of 1
-            dodgeDamage = Math.max(1, damage/DODGE_MODIFIER);
+        	
+    		dodgeDamage = Math.max(1, damage/DODGE_MODIFIER);
+    		if (dodgeChance < 1.0) {
+    			// round semi randomly
+    			dodgeDamage = (int) (dodgeDamage * dodgeChance + damage * (1.0-dodgeChance) + ((currentTime%137)/137.0));
+    		}
+    		
+            dodgePercent = 1.0f - ((float)dodgeDamage)/damage;
         } else {
-            dodgeDamage = damage;
+        	// such a nasty hack to handle partial dodges
+    		if (move.getMoveId() == PokemonMove.DODGE) {
+            	dodgeDamage = 0;
+                dodgePercent = ((float)damage)/1000;
+            } else {
+	            dodgeDamage = damage;
+	            dodgePercent = 0;
+            }
         }
-        final CombatResult.Builder builder = CombatResult.newBuilder().setCombatTime(move.getDurationMs())
+        final CombatResult.Builder builder = CombatResult.newBuilder().setCombatTime(combatTime).setCurrentTime(currentTime)
                 .setDamage(dodgeDamage).setDamageTime(move.getDamageWindowEndMs()).setAttackMove(move.getMoveId())
-                .setDodgePercent((float)damage/dodgeDamage).setCriticalHit(false);
+                .setDodgePercent(dodgePercent).setCriticalHit(false);
         return builder;
 	}
 
-    public int damageOfMove(double attack, double defense, Move move, Pokemon attacker, Pokemon defender) {
+    public AttackDamage damageOfMove(double attack, double defense, Move move, Pokemon attacker, Pokemon defender) {
         if (move == MoveRepository.DODGE_MOVE) {
-            return 0;
+            return new AttackDamage(0, MoveRepository.DODGE_MOVE, 1.0);
         }
         final double modifier = calculateModifier(move, attacker, defender);
 
@@ -137,19 +156,27 @@ public class Formulas {
         // * (wasCrit?1.5:1.0) * move.getAccuracyChance() * modifier));
         // rounds up if possible
         int damage = (int) (0.5 * attack / defense * move.getPower() * critMultiplier * missMultiplier * modifier) + 1;
-        return damage;
+        return new AttackDamage(damage, move, modifier);
     }
 
-    public int defensePrestigeGain(double attack, double... defenses) {
+    public int defensePrestigeGain(double attackCP, double... defenseCPs) {
         int prestigeGain = 0;
-        for (final double defense : defenses) {
-            if (attack < defense) {
-                prestigeGain += Math.min(1000, (int) (500.0 * defense / attack));
-            } else {
-                prestigeGain += Math.max(100, (int) (310.0 * defense / attack - 55)) ;
-            }
+        for (final double defenseCP : defenseCPs) {
+            double multiplier = defenseCP / 2000.0;
+            prestigeGain += Math.min(1000,  Math.round(multiplier * (500.0 * defenseCP / attackCP)));
         }
         return prestigeGain;
+    }
+    public int getCPForPrestigeTarget(double defenseCP, int prestige) {
+    	// this range does not exist
+//    	if ( (prestige >= 255 && prestige <= 499) || prestige > 1000 || prestige < 100) {
+//    		throw new IllegalArgumentException (prestige + " is not a valid possible prestige amount");
+//    	} 
+        double multiplier = defenseCP / 2000.0;
+    	
+		int cp = (int) Math.round(multiplier * defenseCP * 500.0 / prestige);
+		if (cp < 10) return 0;
+		return cp;
     }
 
     public int energyGain(int damage) {
@@ -167,5 +194,48 @@ public class Formulas {
 
 	public void setResistRepository(ResistRepository resistRepository) {
 		this.resistRepository = resistRepository;
+	}
+
+	public double getOverallRating(int effectiveCombatTime, double potions, double powerLog, boolean isDefender) {
+		double combatTimeRating = getCombatTimeRating(effectiveCombatTime);
+		// cap out at 5 potions
+		double potionsRating = getPotionsRating(potions);
+		if (isDefender) {
+			// combat time is good
+			combatTimeRating = 1.0 / combatTimeRating;
+			// potions is good
+			potionsRating = 1.0 / potionsRating;
+		}
+		combatTimeRating = Math.log10(combatTimeRating);
+		potionsRating = Math.log10(potionsRating);
+
+		return Math.pow(10, (powerLog * 50.0 + combatTimeRating * 30.0 + potionsRating * 20.0) / 100);
+	}
+
+	public double getPotionsRating(double potions) {
+		return Math.max(1.0, Math.min(10.0, 5.0 / potions));
+	}
+
+	public double getCombatTimeRating(int effectiveCombatTime) {
+		double combatTimeRating = Math.max(0.1,
+				Math.min(10.0, Formulas.MAX_COMBAT_TIME_MS / (2.0 * (double) effectiveCombatTime)));
+		if (combatTimeRating <=1.0) {
+			// penalize for being worse than 50s 
+			combatTimeRating*= (combatTimeRating);
+		}
+		if (combatTimeRating <=0.4) {
+			// penalize for being worse than 79s
+			combatTimeRating*= (combatTimeRating / 0.4);
+		}
+		if (combatTimeRating <=0.25) {
+			// penalize for being  worse than 88s
+			combatTimeRating*= (combatTimeRating / 0.25);
+		}
+
+		if (combatTimeRating <= 0.1) {
+			// penalize for death 
+			combatTimeRating = 0.1;  
+		}
+		return combatTimeRating;
 	}
 }
